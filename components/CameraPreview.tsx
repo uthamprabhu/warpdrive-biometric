@@ -1,7 +1,7 @@
 import { RefObject } from "react";
 
 type Props = {
-  videoRef: RefObject<HTMLVideoElement>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   status?: string;
   overlayText?: string;
 };
