@@ -99,7 +99,9 @@ export const saveEmbedding = async (record: BiometricEmbedding) => {
 
   await withStore(
     embeddingsStore,
-    (store) => store.setItem(record.uid, record),
+    async (store) => {
+      await store.setItem(record.uid, record);
+    },
     () => {
       memoryState.embeddings.set(record.uid, record);
     }
@@ -162,7 +164,9 @@ export const updateUserRegistry = async (
 
   await withStore(
     registryStore,
-    (store) => store.setItem("users", registry),
+    async (store) => {
+      await store.setItem("users", registry);
+    },
     () => {
       memoryState.registry.set(record.uid, registry[record.uid]);
     }
@@ -192,7 +196,9 @@ export const setOfflineSession = async (record: {
 
   await withStore(
     sessionStore,
-    (store) => store.setItem("offline-session", payload),
+    async (store) => {
+      await store.setItem("offline-session", payload);
+    },
     () => {
       memoryState.session = payload;
     }
@@ -218,7 +224,9 @@ export const clearOfflineSession = async () => {
 
   await withStore(
     sessionStore,
-    (store) => store.removeItem("offline-session"),
+    async (store) => {
+      await store.removeItem("offline-session");
+    },
     () => {
       memoryState.session = null;
     }
