@@ -9,14 +9,23 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "face-api.js": "^0.22.2",
+    "firebase": "^11.10.0",
+    "localforage": "^1.10.0",
+    "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "next": "16.0.1"
+    "react-hot-toast": "^2.4.1",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.1"
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.5",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^9.13.0",
+    "eslint-config-next": "16.0.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3"
   }
 }
