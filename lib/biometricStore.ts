@@ -123,7 +123,9 @@ export const saveEmbedding = async (record: BiometricEmbedding) => {
   };
   await withStore(
     registryStore,
-    (store) => store.setItem("users", next),
+    async (store) => {
+      await store.setItem("users", next);
+    },
     () => {
       memoryState.registry.set(record.uid, next[record.uid]);
     }
