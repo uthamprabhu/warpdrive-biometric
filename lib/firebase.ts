@@ -6,6 +6,7 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -21,10 +22,9 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app);
-// console.log(analytics);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export const db = getFirestore(app);
 
 setPersistence(auth, browserLocalPersistence).catch(() => undefined);
 auth.useDeviceLanguage();

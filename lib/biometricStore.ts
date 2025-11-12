@@ -1,4 +1,13 @@
 import localforage from "localforage";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 type NullableStore = ReturnType<typeof localforage.createInstance> | null;
 
@@ -81,6 +90,84 @@ export type UserRegistryRecord = {
 
 type RegistryMap = Record<string, UserRegistryRecord>;
 
+const registryCollection = () =>
+  db ? collection(db, "userRegistry") : null;
+
+const embeddingCollection = () =>
+  db ? collection(db, "biometricEmbeddings") : null;
+
+const syncRegistryEntry = async (entry: UserRegistryRecord) => {
+  const col = registryCollection();
+  if (!col) return;
+
+  try {
+    await setDoc(doc(col, entry.uid), entry, { merge: true });
+  } catch (error) {
+    console.warn("Failed to sync registry to Firestore", error);
+  }
+};
+
+const syncEmbedding = async (record: BiometricEmbedding) => {
+  const col = embeddingCollection();
+  if (!col) return;
+
+  try {
+    await setDoc(doc(col, record.uid), record, { merge: true });
+  } catch (error) {
+    console.warn("Failed to sync embedding to Firestore", error);
+  }
+};
+
+const fetchRegistryFromRemote = async (): Promise<RegistryMap | null> => {
+  const col = registryCollection();
+  if (!col) return null;
+
+  try {
+    const snapshot = await getDocs(col);
+    const remote: RegistryMap = {};
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as Partial<UserRegistryRecord>;
+      remote[docSnap.id] = {
+        uid: docSnap.id,
+        email: data.email ?? null,
+        displayName: data.displayName ?? null,
+        photoURL: data.photoURL ?? null,
+        biometricEnrolled: Boolean(data.biometricEnrolled),
+        updatedAt:
+          typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+      };
+    });
+    return remote;
+  } catch (error) {
+    console.warn("Failed to fetch registry from Firestore", error);
+    return null;
+  }
+};
+
+const fetchEmbeddingFromRemote = async (
+  uid: string
+): Promise<BiometricEmbedding | null> => {
+  const col = embeddingCollection();
+  if (!col) return null;
+
+  try {
+    const snapshot = await getDoc(doc(col, uid));
+    if (!snapshot.exists()) {
+      return null;
+    }
+    const data = snapshot.data() as BiometricEmbedding;
+    return {
+      uid,
+      descriptor: data.descriptor,
+      updatedAt:
+        typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+    };
+  } catch (error) {
+    console.warn("Failed to fetch embedding from Firestore", error);
+    return null;
+  }
+};
+
 const getRegistry = async (): Promise<RegistryMap> =>
   withStore(
     registryStore,
@@ -107,6 +194,7 @@ export const saveEmbedding = async (record: BiometricEmbedding) => {
     }
   );
   memoryState.embeddings.set(record.uid, record);
+  await syncEmbedding(record);
 
   const registry = await getRegistry();
   const next: RegistryMap = {
@@ -130,6 +218,8 @@ export const saveEmbedding = async (record: BiometricEmbedding) => {
       memoryState.registry.set(record.uid, next[record.uid]);
     }
   );
+  memoryState.registry.set(record.uid, next[record.uid]);
+  await syncRegistryEntry(next[record.uid]);
 };
 
 export const getEmbedding = async (
@@ -137,11 +227,29 @@ export const getEmbedding = async (
 ): Promise<BiometricEmbedding | null> => {
   ensureStores();
 
-  return withStore(
+  const local = await withStore(
     embeddingsStore,
     async (store) => (await store.getItem<BiometricEmbedding>(uid)) ?? null,
     () => memoryState.embeddings.get(uid) ?? null
   );
+  if (local) {
+    return local;
+  }
+
+  const remote = await fetchEmbeddingFromRemote(uid);
+  if (remote) {
+    await withStore(
+      embeddingsStore,
+      async (store) => {
+        await store.setItem(uid, remote);
+      },
+      () => {
+        memoryState.embeddings.set(uid, remote);
+      }
+    );
+    memoryState.embeddings.set(uid, remote);
+  }
+  return remote;
 };
 
 export const updateUserRegistry = async (
@@ -174,10 +282,31 @@ export const updateUserRegistry = async (
     }
   );
   memoryState.registry.set(record.uid, registry[record.uid]);
+  await syncRegistryEntry(registry[record.uid]);
 };
 
 export const listRegisteredUsers = async (): Promise<UserRegistryRecord[]> => {
   ensureStores();
+
+  const remote = await fetchRegistryFromRemote();
+  if (remote) {
+    memoryState.registry.clear();
+    Object.values(remote).forEach((entry) =>
+      memoryState.registry.set(entry.uid, entry)
+    );
+
+    await withStore(
+      registryStore,
+      async (store) => {
+        await store.setItem("users", remote);
+      },
+      () => undefined
+    );
+
+    return Object.values(remote).sort(
+      (a, b) => b.updatedAt - a.updatedAt || a.uid.localeCompare(b.uid)
+    );
+  }
 
   const registry = await getRegistry();
   return Object.values(registry).sort(
@@ -234,5 +363,46 @@ export const clearOfflineSession = async () => {
     }
   );
   memoryState.session = null;
+};
+
+export const deleteUserRecord = async (uid: string) => {
+  ensureStores();
+
+  memoryState.embeddings.delete(uid);
+  memoryState.registry.delete(uid);
+
+  await withStore(
+    embeddingsStore,
+    async (store) => {
+      await store.removeItem(uid);
+    },
+    () => undefined
+  );
+
+  const registry = await getRegistry();
+  if (registry[uid]) {
+    delete registry[uid];
+    await withStore(
+      registryStore,
+      async (store) => {
+        await store.setItem("users", registry);
+      },
+      () => undefined
+    );
+  }
+
+  const embeddingsCol = embeddingCollection();
+  const registryCol = registryCollection();
+
+  try {
+    if (embeddingsCol) {
+      await deleteDoc(doc(embeddingsCol, uid));
+    }
+    if (registryCol) {
+      await deleteDoc(doc(registryCol, uid));
+    }
+  } catch (error) {
+    console.warn("Failed to delete Firestore records", error);
+  }
 };
 
